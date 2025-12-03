@@ -1,44 +1,56 @@
-name: Deploy Application Docker Image to Azure Web App Service
+name: Deploy Application Docker Image to AWS
 
-on: 
+
+on:
   push:
     branches:
-      - main 
+      - main
     paths-ignore:
       - "README.md"
       - "docs"
- 
+
+
 jobs:
-  build: 
+  build:
     runs-on: ubuntu-latest
+
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2
 
-      - name: Login to Azure Container Registry
-        uses: azure/docker-login@v1
-        with:
-          login-server: ${{ secrets.AZURE_LOGIN_SERVER }}
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Build and Push Application Image to Azure Container Registry
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      - name: Build and Push Application Image to Amazon ECR
         id: docker-push
+        env:
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          REPOSITORY: ${{ secrets.ECR_REPOSITORY }}   # e.g. "customerseg"
+          IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t "${{ secrets.AZURE_LOGIN_SERVER }}"/"${{ secrets.REPO_NAME }}":"${{ github.sha }}" .
-          docker push ${{ secrets.AZURE_LOGIN_SERVER }}/${{ secrets.REPO_NAME }}:${{ github.sha }}
-          
-      - name: Login via Azure CLI
-        uses: azure/login@v1
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          docker build -t $REGISTRY/$REPOSITORY:$IMAGE_TAG .
+          docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
 
-      - name: Deploy to Azure Web App Service
-        uses: azure/webapps-deploy@v2
+
+      - name: Deploy to Amazon ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
-          app-name: "customerseg"
-          images: ${{ secrets.AZURE_LOGIN_SERVER }}/${{ secrets.REPO_NAME }}:${{ github.sha }}
+          task-definition: taskdef.json                 # path to your task definition file
+          service: ${{ secrets.ECS_SERVICE }}  
+          cluster: ${{ secrets.ECS_CLUSTER }}          
+          wait-for-service-stability: true
 
 
 
